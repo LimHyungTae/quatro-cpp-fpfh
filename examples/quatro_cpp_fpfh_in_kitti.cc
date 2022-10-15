@@ -70,6 +70,9 @@ int main() {
   solution_eigen.topRightCorner(3, 1) = solution_by_quatro.translation.cast<float>();
   std::cout << "=====================================" << std::endl;
   std::cout << "           Quatro Results            " << std::endl;
+  std::cout << "Time taken (s): "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_q - begin_q).count() /
+               1000000.0 << std::endl;
   std::cout << solution_eigen << std::endl;
   std::cout << "=====================================" << std::endl;
   pcl::transformPointCloud(src_raw, est_q, solution_eigen);
@@ -78,6 +81,9 @@ int main() {
   solution_eigen.topRightCorner(3, 1) = solution_by_teaser.translation.cast<float>();
   std::cout << "=====================================" << std::endl;
   std::cout << "          TEASER++ Results           " << std::endl;
+  std::cout << "Time taken (s): "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_t - begin_t).count() /
+               1000000.0 << std::endl;
   std::cout << solution_eigen << std::endl;
   std::cout << "=====================================" << std::endl;
   pcl::transformPointCloud(src_raw, est_t, solution_eigen);

@@ -73,6 +73,9 @@ int main() {
   // Compare results
   std::cout << "Error (deg): " << rot_error_quatro << std::endl;
   std::cout << "Estimated translation (m): " << ts_error_quatro << std::endl;
+  std::cout << "Time taken (s): "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_q - begin_q).count() /
+               1000000.0 << std::endl;
 
   std::cout << "=====================================" << std::endl;
   std::cout << "          TEASER++ Results           " << std::endl;
@@ -83,6 +86,9 @@ int main() {
   // Compare results
   std::cout << "Error (deg): " << rot_error_teaser << std::endl;
   std::cout << "Estimated translation (m): " << ts_error_teaser << std::endl;
+  std::cout << "Time taken (s): "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_t - begin_t).count() /
+               1000000.0 << std::endl;
 
   // Visualization
   pcl::PointCloud<pcl::PointXYZ> src_raw;
