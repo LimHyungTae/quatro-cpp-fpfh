@@ -38,7 +38,7 @@ int main() {
 
   teaser::Matcher matcher;
   auto correspondences = matcher.calculateCorrespondences(
-      src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, false, true, false, 0.95);
+      src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, true, true, true, 0.95);
 
   // Prepare solver parameters
   teaser::RobustRegistrationSolver::Params quatro_param, teaser_param;
