@@ -2,12 +2,11 @@
 
 Official page of [*"A Single Correspondence Is Enough: Robust Global Registration to Avoid Degeneracy in Urban Environments"*](https://arxiv.org/abs/2203.06612), which is accepted @ ICRA'22. **NOTE that this repository is the re-implmenation, so it is not exactly same with the original version**.   
 
-We provide some examples to show how to use Quatro implemented in TEASER++ library 
+We provide some examples to show how to use Quatro implemented in [TEASER++ library](https://github.com/MIT-SPARK/TEASER-plusplus).
 
-(15, Oct. 2022: it is still not merged. I did PR to TEASER++ repository).
+Originally, We provide Quatro based on Point Cloud Library ([here](https://github.com/url-kaist/Quatro)), but we also integrate Quatro in [TEASER++ library](https://github.com/MIT-SPARK/TEASER-plusplus) for convenience.
 
-
-Originally, We provide Quatro using Point Cloud Library ([here](https://github.com/url-kaist/Quatro)), but we also integrate Quatro in [TEASER++ library](https://github.com/MIT-SPARK/TEASER-plusplus) for convenience.
+* **Updated on 2024.01.01**: `optimizedMatching` in `matcher.cpp` is added. See the `quatro_cpp_fpfh_in_kitti` example.
 
 ## Contents
 1. [Test Env.](#Test-Env.)
@@ -20,7 +19,6 @@ Originally, We provide Quatro using Point Cloud Library ([here](https://github.c
 
 * PCL 1.8
 * Linux 18.04 LTS
-
 
 Note that I copied raw files of TEASER++, which are for descriptor extraction and matching, due to the PCL version issue (Original: 1.9 / Mine: 1.8 in Ubuntu 18.04), 
 
@@ -105,6 +103,8 @@ Time taken (s): 0.051302
 (Red: source, green: target, blue: estimate from Quatro, magenta: estimate from TEASER++. The blue and magenta clouds are overlapped)
 
 Both methods succeeded!
+
+Note that, `optimizedMatching` is a bit faster than `advancedMatching` (0.40 < 0.42, which is not significant). But it can control the maximum number of correspondences. 
 
 ## Citation
 
