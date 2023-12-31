@@ -14,7 +14,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include "teaser/matcher.h"
+#include "quatro/matcher.h"
 #include "teaser/geometry.h"
 
 namespace teaser {
@@ -22,14 +22,16 @@ namespace teaser {
 std::vector<std::pair<int, int>> Matcher::calculateCorrespondences(
     teaser::PointCloud& source_points, teaser::PointCloud& target_points,
     teaser::FPFHCloud& source_features, teaser::FPFHCloud& target_features, bool use_absolute_scale,
-    bool use_crosscheck, bool use_tuple_test, float tuple_scale) {
+    bool use_crosscheck, bool use_tuple_test, float tuple_scale, bool use_optimized_matching) {
 
   Feature cloud_features;
   pointcloud_.push_back(source_points);
   pointcloud_.push_back(target_points);
 
   // It compute the global_scale_ required to set correctly the search radius
-  normalizePoints(use_absolute_scale);
+  if (!use_optimized_matching) {
+    normalizePoints(use_absolute_scale);
+  }
 
   for (auto& f : source_features) {
     Eigen::VectorXf fpfh(33);
@@ -48,8 +50,12 @@ std::vector<std::pair<int, int>> Matcher::calculateCorrespondences(
   }
   features_.push_back(cloud_features);
 
-  advancedMatching(use_crosscheck, use_tuple_test, tuple_scale);
-
+  if (use_optimized_matching) {
+    std::cout << "\033[1;32mUse optimized matching!\033[0m\n";
+    optimizedMatching(thr_dist_, num_max_corres_, tuple_scale);
+  } else {
+    advancedMatching(use_crosscheck, use_tuple_test, tuple_scale);
+  }
   return corres_;
 }
 
@@ -112,6 +118,7 @@ void Matcher::normalizePoints(bool use_absolute_scale) {
     }
   }
 }
+
 void Matcher::advancedMatching(bool use_crosscheck, bool use_tuple_test, float tuple_scale) {
 
   int fi = 0; // source idx
@@ -292,6 +299,144 @@ void Matcher::advancedMatching(bool use_crosscheck, bool use_tuple_test, float t
     corres = temp;
   }
   corres_ = corres;
+
+  ///////////////////////////
+  /// ERASE DUPLICATES
+  /// input : corres_
+  /// output : corres_
+  ///////////////////////////
+  std::sort(corres_.begin(), corres_.end());
+  corres_.erase(std::unique(corres_.begin(), corres_.end()), corres_.end());
+}
+
+void Matcher::optimizedMatching(float thr_dist,  int num_max_corres, float tuple_scale) {
+  int fi = 0; // source idx
+  int fj = 1; // destination idx
+
+  bool swapped = false;
+
+  if (pointcloud_[fj].size() > pointcloud_[fi].size()) {
+    int temp = fi;
+    fi = fj;
+    fj = temp;
+    swapped = true;
+  }
+
+  int nPti = pointcloud_[fi].size();
+  int nPtj = pointcloud_[fj].size();
+
+  ///////////////////////////
+  /// Build FLANNTREE
+  ///////////////////////////
+  KDTree feature_tree_i(flann::KDTreeSingleIndexParams(15));
+  buildKDTree(features_[fi], &feature_tree_i);
+
+  KDTree feature_tree_j(flann::KDTreeSingleIndexParams(15));
+  buildKDTree(features_[fj], &feature_tree_j);
+
+  std::vector<int> corres_K;
+  std::vector<float> dis;
+  std::vector<int> ind;
+
+  std::vector<std::pair<int, int>> corres;
+  corres.reserve(std::max(nPti, nPtj) / 4); // reserve 1/4 of the maximum number of points, which is heuristic
+    ///////////////////////////
+  /// INITIAL MATCHING
+  ///////////////////////////
+  std::vector<int> i_to_j(nPti, -1);
+  for (int j = 0; j < nPtj; j++) {
+    searchKDTree(&feature_tree_i, features_[fj][j], corres_K, dis, 1);
+    // `dis` is a squared distance
+    if (dis[0] > thr_dist * thr_dist) { continue; }
+    int i = corres_K[0];
+
+    if (i_to_j[i] == -1) {
+      searchKDTree(&feature_tree_j, features_[fi][i], corres_K, dis, 1);
+      i_to_j[i] = corres_K[0];
+      if (j == corres_K[0]) {
+        corres.emplace_back(i, j);
+      }
+    }
+  }
+
+  ///////////////////////////
+  /// TUPLE CONSTRAINT
+  /// input : corres
+  /// output : corres
+  ///////////////////////////
+  if (tuple_scale != 0) {
+    std::cout << "TUPLE CONSTRAINT" << std::endl;
+    srand(time(NULL));
+    int rand0, rand1, rand2;
+    int idi0, idi1, idi2;
+    int idj0, idj1, idj2;
+    float scale = tuple_scale;
+    int ncorr = corres.size();
+    int number_of_trial = ncorr * 100;
+    std::vector<std::pair<int, int>> corres_tuple;
+//    corres_tuple.reserve(num_max_corres * 2); // 2: heuristics
+
+    for (int i = 0; i < number_of_trial; i++) {
+      rand0 = rand() % ncorr;
+      rand1 = rand() % ncorr;
+      rand2 = rand() % ncorr;
+
+      idi0 = corres[rand0].first;
+      idj0 = corres[rand0].second;
+      idi1 = corres[rand1].first;
+      idj1 = corres[rand1].second;
+      idi2 = corres[rand2].first;
+      idj2 = corres[rand2].second;
+
+      // collect 3 points from i-th fragment
+      Eigen::Vector3f pti0 = {pointcloud_[fi][idi0].x, pointcloud_[fi][idi0].y,
+                              pointcloud_[fi][idi0].z};
+      Eigen::Vector3f pti1 = {pointcloud_[fi][idi1].x, pointcloud_[fi][idi1].y,
+                              pointcloud_[fi][idi1].z};
+      Eigen::Vector3f pti2 = {pointcloud_[fi][idi2].x, pointcloud_[fi][idi2].y,
+                              pointcloud_[fi][idi2].z};
+
+      float li0 = (pti0 - pti1).norm();
+      float li1 = (pti1 - pti2).norm();
+      float li2 = (pti2 - pti0).norm();
+
+      // collect 3 points from j-th fragment
+      Eigen::Vector3f ptj0 = {pointcloud_[fj][idj0].x, pointcloud_[fj][idj0].y,
+                              pointcloud_[fj][idj0].z};
+      Eigen::Vector3f ptj1 = {pointcloud_[fj][idj1].x, pointcloud_[fj][idj1].y,
+                              pointcloud_[fj][idj1].z};
+      Eigen::Vector3f ptj2 = {pointcloud_[fj][idj2].x, pointcloud_[fj][idj2].y,
+                              pointcloud_[fj][idj2].z};
+
+      float lj0 = (ptj0 - ptj1).norm();
+      float lj1 = (ptj1 - ptj2).norm();
+      float lj2 = (ptj2 - ptj0).norm();
+
+      if ((li0 * scale < lj0) && (lj0 < li0 / scale) && (li1 * scale < lj1) &&
+          (lj1 < li1 / scale) && (li2 * scale < lj2) && (lj2 < li2 / scale)) {
+        corres_tuple.emplace_back(idi0, idj0);
+        corres_tuple.emplace_back(idi1, idj1);
+        corres_tuple.emplace_back(idi2, idj2);
+      }
+
+      if (corres_tuple.size() > num_max_corres) { break; }
+    }
+    corres.clear();
+
+    for (size_t i = 0; i < corres_tuple.size(); ++i)
+      corres.emplace_back(corres_tuple[i].first, corres_tuple[i].second);
+  } else {
+    std::cout << "Skipping Tuple Constraint." << std::endl;
+  }
+
+  if (swapped) {
+    std::vector<std::pair<int, int>> temp;
+    for (size_t i = 0; i < corres.size(); i++)
+      temp.emplace_back(corres[i].second, corres[i].first);
+    corres_ = temp;
+  } else {
+    corres_ = corres;
+  }
 
   ///////////////////////////
   /// ERASE DUPLICATES

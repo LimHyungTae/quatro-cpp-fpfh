@@ -45,8 +45,10 @@ int main() {
   auto scene_descriptors = fpfh.computeFPFHFeatures(tgt_cloud, 0.02, 0.04);
 
   teaser::Matcher matcher;
+  // Booleans are just to follow the TEASER++ examples
+  // Thus, note that false-true-false is not the optimal nor fast setting
   auto correspondences = matcher.calculateCorrespondences(
-      src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, false, true, false, 0.95);
+      src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, false, true, false, 0.95, false);
 
   // Prepare solver parameters
   teaser::RobustRegistrationSolver::Params quatro_param, teaser_param;

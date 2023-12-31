@@ -37,8 +37,15 @@ int main() {
   auto scene_descriptors = fpfh.computeFPFHFeatures(tgt_cloud, 0.6, 0.9);
 
   teaser::Matcher matcher;
+
+  std::chrono::steady_clock::time_point begin_match = std::chrono::steady_clock::now();
   auto correspondences = matcher.calculateCorrespondences(
-      src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, true, true, true, 0.95);
+      src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, true, true, true, 0.95, true);
+  std::chrono::steady_clock::time_point end_match = std::chrono::steady_clock::now();
+  std::cout << "Matching taken "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_match - begin_match).count() /
+               1000000.0 << " sec for getting " << correspondences.size() << " correspondences" << std::endl;
+
 
   // Prepare solver parameters
   teaser::RobustRegistrationSolver::Params quatro_param, teaser_param;
