@@ -33,6 +33,7 @@ int main() {
 
   // Compute FPFH
   teaser::FPFHEstimation fpfh;
+  std::chrono::steady_clock::time_point begin_extraction = std::chrono::steady_clock::now();
   auto obj_descriptors = fpfh.computeFPFHFeatures(src_cloud, 0.6, 0.9);
   auto scene_descriptors = fpfh.computeFPFHFeatures(tgt_cloud, 0.6, 0.9);
 
@@ -42,6 +43,10 @@ int main() {
   auto correspondences = matcher.calculateCorrespondences(
       src_cloud, tgt_cloud, *obj_descriptors, *scene_descriptors, true, true, true, 0.95, true);
   std::chrono::steady_clock::time_point end_match = std::chrono::steady_clock::now();
+
+  std::cout << "Extraction taken "
+            << std::chrono::duration_cast<std::chrono::microseconds>(begin_match - begin_extraction).count() /
+               1000000.0 << " sec" << std::endl;
   std::cout << "Matching taken "
             << std::chrono::duration_cast<std::chrono::microseconds>(end_match - begin_match).count() /
                1000000.0 << " sec for getting " << correspondences.size() << " correspondences" << std::endl;
