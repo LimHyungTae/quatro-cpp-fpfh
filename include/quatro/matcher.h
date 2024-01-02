@@ -12,6 +12,7 @@
 
 #include "teaser/geometry.h"
 #include "quatro/fpfh.h"
+#include <chrono>
 
 namespace teaser {
 
@@ -42,14 +43,20 @@ public:
                            bool use_absolute_scale = true, bool use_crosscheck = true,
                            bool use_tuple_test = true, float tuple_scale = 0, bool use_optimized_matching=true);
 
-  float thr_dist_ = 40;        // Empirically, the matching whose dist is larger than 40 is highly likely to be an outlier
+  float thr_dist_ = 30;        // Empirically, the matching whose dist is larger than 30 is highly likely to be an outlier
   float num_max_corres_ = 600; // Empirically, too many correspondences cause slow down of the system
 private:
   template <typename T> void buildKDTree(const std::vector<T>& data, KDTree* tree);
 
+  template <typename T> void buildKDTreeWithTBB(const std::vector<T>& data, KDTree* tree);
+
   template <typename T>
   void searchKDTree(KDTree* tree, const T& input, std::vector<int>& indices,
                     std::vector<float>& dists, int nn);
+
+  template <typename T>
+  void searchKDTreeAll(Matcher::KDTree* tree, const std::vector<T>& inputs,
+                              std::vector<int>& indices, std::vector<float>& dists, int nn);
 
   void advancedMatching(bool use_crosscheck, bool use_tuple_test, float tuple_scale);
 

@@ -12,6 +12,9 @@ find_package(teaserpp REQUIRED)
 find_package(OpenMP)
 find_package(PCL 1.8 REQUIRED)
 
+option(USE_SYSTEM_TBB "Use system pre-installed oneAPI/tbb" ON)
+include(3rdparty/find_dependencies.cmake)
+
 include_directories(${PCL_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
@@ -35,6 +38,7 @@ target_link_libraries(include_test
         Eigen3::Eigen
         teaserpp::teaser_registration
         teaserpp::teaser_io
+        TBB::tbb
         ${PCL_LIBRARIES})
 
 add_executable(quatro_cpp_fpfh examples/quatro_cpp_fpfh.cc ${fpfh_src})
@@ -46,6 +50,7 @@ target_link_libraries(quatro_cpp_fpfh
         Eigen3::Eigen
         teaserpp::teaser_registration
         teaserpp::teaser_io
+        TBB::tbb
         ${PCL_LIBRARIES})
 
 add_executable(quatro_cpp_fpfh_in_kitti examples/quatro_cpp_fpfh_in_kitti.cc ${fpfh_src})
@@ -57,6 +62,7 @@ target_link_libraries(quatro_cpp_fpfh_in_kitti
         Eigen3::Eigen
         teaserpp::teaser_registration
         teaserpp::teaser_io
+        TBB::tbb
         ${PCL_LIBRARIES})
 
 # Copy the data files to build directory

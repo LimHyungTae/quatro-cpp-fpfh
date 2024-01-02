@@ -17,6 +17,10 @@
 #include "quatro/matcher.h"
 #include "teaser/geometry.h"
 
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_reduce.h>
+
 namespace teaser {
 
 std::vector<std::pair<int, int>> Matcher::calculateCorrespondences(
@@ -328,41 +332,63 @@ void Matcher::optimizedMatching(float thr_dist,  int num_max_corres, float tuple
   ///////////////////////////
   /// Build FLANNTREE
   ///////////////////////////
+  std::chrono::steady_clock::time_point begin_build = std::chrono::steady_clock::now();
   KDTree feature_tree_i(flann::KDTreeSingleIndexParams(15));
   buildKDTree(features_[fi], &feature_tree_i);
 
   KDTree feature_tree_j(flann::KDTreeSingleIndexParams(15));
   buildKDTree(features_[fj], &feature_tree_j);
+  std::chrono::steady_clock::time_point end_build = std::chrono::steady_clock::now();
 
   std::vector<int> corres_K;
   std::vector<float> dis;
   std::vector<int> ind;
 
-  std::vector<std::pair<int, int>> corres;
-  corres.reserve(std::max(nPti, nPtj) / 4); // reserve 1/4 of the maximum number of points, which is heuristic
-    ///////////////////////////
+  ///////////////////////////
   /// INITIAL MATCHING
   ///////////////////////////
-  std::vector<int> i_to_j(nPti, -1);
-  for (int j = 0; j < nPtj; j++) {
-    searchKDTree(&feature_tree_i, features_[fj][j], corres_K, dis, 1);
-    // `dis` is a squared distance
-    if (dis[0] > thr_dist * thr_dist) { continue; }
-    int i = corres_K[0];
+  searchKDTreeAll(&feature_tree_i, features_[fj], corres_K, dis, 1);
+  std::chrono::steady_clock::time_point end_search = std::chrono::steady_clock::now();
 
-    if (i_to_j[i] == -1) {
-      searchKDTree(&feature_tree_j, features_[fi][i], corres_K, dis, 1);
-      i_to_j[i] = corres_K[0];
-      if (j == corres_K[0]) {
-        corres.emplace_back(i, j);
+  std::vector<int> i_to_j(nPti, -1);
+  std::vector<std::pair<int, int>> empty_vector;
+  empty_vector.reserve(corres_K.size());
+  std::vector<int> corres_K_for_i;
+  std::vector<float> dis_for_i;
+
+  std::chrono::steady_clock::time_point begin_corr = std::chrono::steady_clock::now();
+  auto corres = tbb::parallel_reduce(
+  // Range
+  tbb::blocked_range<size_t>(0, corres_K.size()),
+  // Identity
+  empty_vector,
+  // 1st lambda: Parallel computation
+  [&](const tbb::blocked_range<size_t> &r, std::vector<std::pair<int, int>> local_corres) -> std::vector<std::pair<int, int>> {
+    local_corres.reserve(r.size());
+    for (size_t j = r.begin(); j != r.end(); ++j) {
+      if (dis[j] > thr_dist * thr_dist) { continue; }
+
+      const int& i = corres_K[j];
+      if (i_to_j[i] == -1) {
+        searchKDTree(&feature_tree_j, features_[fi][i], corres_K_for_i, dis_for_i, 1);
+        i_to_j[i] = corres_K_for_i[0];
+        if (corres_K_for_i[0] == j) {
+          local_corres.emplace_back(i, j);
+        }
       }
     }
-  }
+    return local_corres;
+  },
+  // 2nd lambda: Parallel reduction
+  [](std::vector<std::pair<int, int>> a, const std::vector<std::pair<int, int>> &b) -> std::vector<std::pair<int, int>> {
+    a.insert(a.end(),  //
+             std::make_move_iterator(b.begin()), std::make_move_iterator(b.end()));
+    return a;
+  });
+  std::chrono::steady_clock::time_point end_corr = std::chrono::steady_clock::now();
 
   ///////////////////////////
-  /// TUPLE CONSTRAINT
-  /// input : corres
-  /// output : corres
+  /// TUPLE TEST
   ///////////////////////////
   if (tuple_scale != 0) {
     std::cout << "TUPLE CONSTRAINT" << std::endl;
@@ -373,78 +399,91 @@ void Matcher::optimizedMatching(float thr_dist,  int num_max_corres, float tuple
     float scale = tuple_scale;
     int ncorr = corres.size();
     int number_of_trial = ncorr * 100;
-    std::vector<std::pair<int, int>> corres_tuple;
-//    corres_tuple.reserve(num_max_corres * 2); // 2: heuristics
+
+    std::vector<bool> is_already_included(ncorr, false);
+    corres_.clear();
+    corres_.reserve(num_max_corres);
+
+    auto addUniqueCorrespondence = [&](const int randIndex, const int id1, const int id2) {
+      if (!is_already_included[randIndex]) {
+        corres_.emplace_back(id1, id2);
+        is_already_included[randIndex] = true;
+      }
+    };
 
     for (int i = 0; i < number_of_trial; i++) {
       rand0 = rand() % ncorr;
       rand1 = rand() % ncorr;
-      rand2 = rand() % ncorr;
 
       idi0 = corres[rand0].first;
       idj0 = corres[rand0].second;
       idi1 = corres[rand1].first;
       idj1 = corres[rand1].second;
-      idi2 = corres[rand2].first;
-      idj2 = corres[rand2].second;
 
-      // collect 3 points from i-th fragment
+      // The order has been changed to reduce the redundant computation
       Eigen::Vector3f pti0 = {pointcloud_[fi][idi0].x, pointcloud_[fi][idi0].y,
                               pointcloud_[fi][idi0].z};
       Eigen::Vector3f pti1 = {pointcloud_[fi][idi1].x, pointcloud_[fi][idi1].y,
                               pointcloud_[fi][idi1].z};
-      Eigen::Vector3f pti2 = {pointcloud_[fi][idi2].x, pointcloud_[fi][idi2].y,
-                              pointcloud_[fi][idi2].z};
 
-      float li0 = (pti0 - pti1).norm();
-      float li1 = (pti1 - pti2).norm();
-      float li2 = (pti2 - pti0).norm();
-
-      // collect 3 points from j-th fragment
       Eigen::Vector3f ptj0 = {pointcloud_[fj][idj0].x, pointcloud_[fj][idj0].y,
                               pointcloud_[fj][idj0].z};
       Eigen::Vector3f ptj1 = {pointcloud_[fj][idj1].x, pointcloud_[fj][idj1].y,
                               pointcloud_[fj][idj1].z};
+
+      float li0 = (pti0 - pti1).norm();
+      float lj0 = (ptj0 - ptj1).norm();
+
+      if ((li0 * scale > lj0) || (lj0 > li0 / scale)) {
+          continue;
+      }
+
+      rand2 = rand() % ncorr;
+      idi2 = corres[rand2].first;
+      idj2 = corres[rand2].second;
+
+      Eigen::Vector3f pti2 = {pointcloud_[fi][idi2].x, pointcloud_[fi][idi2].y,
+                              pointcloud_[fi][idi2].z};
       Eigen::Vector3f ptj2 = {pointcloud_[fj][idj2].x, pointcloud_[fj][idj2].y,
                               pointcloud_[fj][idj2].z};
 
-      float lj0 = (ptj0 - ptj1).norm();
+      float li1 = (pti1 - pti2).norm();
+      float li2 = (pti2 - pti0).norm();
+
       float lj1 = (ptj1 - ptj2).norm();
       float lj2 = (ptj2 - ptj0).norm();
 
-      if ((li0 * scale < lj0) && (lj0 < li0 / scale) && (li1 * scale < lj1) &&
-          (lj1 < li1 / scale) && (li2 * scale < lj2) && (lj2 < li2 / scale)) {
-        corres_tuple.emplace_back(idi0, idj0);
-        corres_tuple.emplace_back(idi1, idj1);
-        corres_tuple.emplace_back(idi2, idj2);
+      if ((li1 * scale < lj1) && (lj1 < li1 / scale) && (li2 * scale < lj2) && (lj2 < li2 / scale)) {
+        if (swapped) {
+          addUniqueCorrespondence(rand0, idj0, idi0);
+          addUniqueCorrespondence(rand1, idj1, idi1);
+          addUniqueCorrespondence(rand2, idj2, idi2);
+        } else {
+          addUniqueCorrespondence(rand0, idi0, idj0);
+          addUniqueCorrespondence(rand1, idi1, idj1);
+          addUniqueCorrespondence(rand2, idi2, idj2);
+        }
       }
-
-      if (corres_tuple.size() > num_max_corres) { break; }
+      if (corres_.size() > num_max_corres) { break; }
     }
-    corres.clear();
-
-    for (size_t i = 0; i < corres_tuple.size(); ++i)
-      corres.emplace_back(corres_tuple[i].first, corres_tuple[i].second);
   } else {
     std::cout << "Skipping Tuple Constraint." << std::endl;
   }
 
-  if (swapped) {
-    std::vector<std::pair<int, int>> temp;
-    for (size_t i = 0; i < corres.size(); i++)
-      temp.emplace_back(corres[i].second, corres[i].first);
-    corres_ = temp;
-  } else {
-    corres_ = corres;
-  }
-
-  ///////////////////////////
-  /// ERASE DUPLICATES
-  /// input : corres_
-  /// output : corres_
-  ///////////////////////////
-  std::sort(corres_.begin(), corres_.end());
-  corres_.erase(std::unique(corres_.begin(), corres_.end()), corres_.end());
+  std::chrono::steady_clock::time_point end_tuple_test = std::chrono::steady_clock::now();
+  const int width = 25;
+  std::cout << std::setw(width) << "[Build KdTree]: "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_build - begin_build).count() /
+               1000000.0 << " sec" << std::endl;
+  std::cout << std::setw(width) << "[Search using FLANN]: "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_search - end_build).count() /
+               1000000.0 << " sec" << std::endl;
+  std::cout << std::setw(width) << "[Cross checking]: "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_corr - end_search).count() /
+               1000000.0 << " sec" << std::endl;
+  std::cout << std::setw(width) << "[Tuple test]: "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end_tuple_test - end_corr).count() /
+               1000000.0 << " sec" << std::endl;
 }
 
 template <typename T> void Matcher::buildKDTree(const std::vector<T>& data, Matcher::KDTree* tree) {
@@ -477,8 +516,47 @@ void Matcher::searchKDTree(Matcher::KDTree* tree, const T& input, std::vector<in
   dists.resize(rows_t * nn);
   flann::Matrix<int> indices_mat(&indices[0], rows_t, nn);
   flann::Matrix<float> dists_mat(&dists[0], rows_t, nn);
-
   tree->knnSearch(query_mat, indices_mat, dists_mat, nn, flann::SearchParams(128));
 }
 
-} // namespace teaser
+template <typename T> void Matcher::buildKDTreeWithTBB(const std::vector<T>& data, Matcher::KDTree* tree) {
+  // Note that it is not much faster than `buildKDTrees`, which is without TBB
+  // I guess the reason is that the data is too small and the overhead of TBB is a bit larger than the speedup.
+  int rows, dim;
+  rows = (int)data.size();
+  dim = (int)data[0].size();
+  std::vector<float> dataset(rows * dim);
+  flann::Matrix<float> dataset_mat(&dataset[0], rows, dim);
+  tbb::parallel_for(0, rows, 1, [&](int i) {
+    for (int j = 0; j < dim; j++) {
+        dataset[i * dim + j] = data[i][j];
+    }
+  });
+  KDTree temp_tree(dataset_mat, flann::KDTreeSingleIndexParams(15));
+  temp_tree.buildIndex();
+  *tree = temp_tree;
+}
+
+template <typename T>
+void Matcher::searchKDTreeAll(Matcher::KDTree* tree, const std::vector<T>& inputs,
+                              std::vector<int>& indices, std::vector<float>& dists, int nn) {
+  int dim = inputs[0].size();
+
+  std::vector<float> query(inputs.size() * dim);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    for (int j = 0; j < dim; ++j) {
+      query[i * dim + j] = inputs[i](j);
+    }
+  }
+  flann::Matrix<float> query_mat(&query[0], inputs.size(), dim);
+
+  indices.resize(inputs.size() * nn);
+  dists.resize(inputs.size() * nn);
+  flann::Matrix<int> indices_mat(&indices[0], inputs.size(), nn);
+  flann::Matrix<float> dists_mat(&dists[0], inputs.size(), nn);
+
+  auto flann_params = flann::SearchParams(128);
+  flann_params.cores = 12;
+  tree->knnSearch(query_mat, indices_mat, dists_mat, nn, flann_params);
+}
+}// namespace teaser
