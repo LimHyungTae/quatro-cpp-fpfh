@@ -110,17 +110,44 @@ It may output the command lines as follows:
 ```commandline
          [Build KdTree]: 0.019237 sec
    [Search using FLANN]: 0.060132 sec
-       [Cross checking]: 0.018097 sec
+       [Cross checking]: 0.014097 sec
            [Tuple test]: 0.005469 sec
 ```
 
-In contrast, `advancedMatching` takes almost 0.42 sec, which is **four time slower** than my implementation. 
+In contrast, `advancedMatching` takes almost 0.45 sec, which is **four time slower** than my implementation. 
 
 ```commandline
-   [Build KdTree & matching]: 0.388105 sec
-            [Cross checking]: 0.000807 sec
+   [Build KdTree & matching]: 0.368105 sec
+            [Cross checking]: 0.075848 sec
                 [Tuple test]: 0.010516 sec
 [Set unique correspondences]: 6e-06 sec
+```
+
+Interestingly, `parallel_reduce` of TBB is 7 times faster than single threading cross checking, which was implemented as:
+
+```cpp
+///////////////////////////////////////////
+// Original, single-threaded implementation
+///////////////////////////////////////////
+std::vector<std::pair<int, int>> corres;
+corres.reserve(std::max(nPti, nPtj) / 4); // reserve 1/4 of the maximum number of points, which is heuristic
+
+///////////////////////////
+/// INITIAL MATCHING
+///////////////////////////
+for (int j = 0; j < nPtj; j++) {
+  // `dis` is a squared distance
+  if (dis[j] > thr_dist * thr_dist) { continue; }
+  const int &i = corres_K[j];
+
+  if (i_to_j[i] == -1) {
+    searchKDTree(&feature_tree_j, features_[fi][i], corres_K, dis, 1);
+    i_to_j[i] = corres_K[0];
+    if (corres_K[0] == j) {
+      corres.emplace_back(i, j);
+    }
+  }
+}
 ```
 
 ## Citation
