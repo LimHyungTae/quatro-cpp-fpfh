@@ -6,7 +6,7 @@ We provide some examples to show how to use Quatro implemented in [TEASER++ libr
 
 Originally, We provide Quatro based on Point Cloud Library ([here](https://github.com/url-kaist/Quatro)), but we also integrate Quatro in [TEASER++ library](https://github.com/MIT-SPARK/TEASER-plusplus) for convenience.
 
-* **Updated on 2024.01.01**: `optimizedMatching` in `matcher.cpp` is added. See the `quatro_cpp_fpfh_in_kitti` example.
+* **Updated on 2024.01.01**: `optimizedMatching` in `matcher.cpp` is added, which is 4 times faster than original implementation. See the `quatro_cpp_fpfh_in_kitti` example.
 
 ## Contents
 1. [Test Env.](#Test-Env.)
@@ -104,7 +104,24 @@ Time taken (s): 0.051302
 
 Both methods succeeded!
 
-Note that, `optimizedMatching` is a bit faster than `advancedMatching` (0.40 < 0.42, which is not significant). But it can control the maximum number of correspondences. 
+Note that, `optimizedMatching` is way more faster than `advancedMatching` (0.10 < 0.42). 
+It may output the command lines as follows:
+
+```commandline
+         [Build KdTree]: 0.019237 sec
+   [Search using FLANN]: 0.060132 sec
+       [Cross checking]: 0.018097 sec
+           [Tuple test]: 0.005469 sec
+```
+
+In contrast, `advancedMatching` takes almost 0.42 sec, which is **four time slower** than my implementation. 
+
+```commandline
+   [Build KdTree & matching]: 0.388105 sec
+            [Cross checking]: 0.000807 sec
+                [Tuple test]: 0.010516 sec
+[Set unique correspondences]: 6e-06 sec
+```
 
 ## Citation
 
