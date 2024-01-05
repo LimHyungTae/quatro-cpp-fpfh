@@ -149,9 +149,8 @@ void Matcher::advancedMatching(bool use_crosscheck, bool use_tuple_test, float t
   KDTree feature_tree_j(flann::KDTreeSingleIndexParams(15));
   buildKDTree(features_[fj], &feature_tree_j);
 
-  std::vector<int> corres_K, corres_K2;
-  std::vector<float> dis;
-  std::vector<int> ind;
+  std::vector<int> corres_K(1, 0);
+  std::vector<float> dis(1, 0.0);
 
   std::vector<std::pair<int, int>> corres;
   std::vector<std::pair<int, int>> corres_cross;
@@ -342,7 +341,6 @@ void Matcher::optimizedMatching(float thr_dist,  int num_max_corres, float tuple
 
   std::vector<int> corres_K;
   std::vector<float> dis;
-  std::vector<int> ind;
 
   ///////////////////////////
   /// INITIAL MATCHING
@@ -353,8 +351,8 @@ void Matcher::optimizedMatching(float thr_dist,  int num_max_corres, float tuple
   std::vector<int> i_to_j(nPti, -1);
   std::vector<std::pair<int, int>> empty_vector;
   empty_vector.reserve(corres_K.size());
-  std::vector<int> corres_K_for_i;
-  std::vector<float> dis_for_i;
+  std::vector<int> corres_K_for_i(1, 0);
+  std::vector<float> dis_for_i(1, 0.0);
 
   std::chrono::steady_clock::time_point begin_corr = std::chrono::steady_clock::now();
   auto corres = tbb::parallel_reduce(
@@ -512,8 +510,6 @@ void Matcher::searchKDTree(Matcher::KDTree* tree, const T& input, std::vector<in
     query[i] = input(i);
   flann::Matrix<float> query_mat(&query[0], rows_t, dim);
 
-  indices.resize(rows_t * nn);
-  dists.resize(rows_t * nn);
   flann::Matrix<int> indices_mat(&indices[0], rows_t, nn);
   flann::Matrix<float> dists_mat(&dists[0], rows_t, nn);
   tree->knnSearch(query_mat, indices_mat, dists_mat, nn, flann::SearchParams(128));
